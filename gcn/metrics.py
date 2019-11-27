@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tensorflow.metrics import recall, precision
 
 
 def masked_softmax_cross_entropy(preds, labels, mask):
@@ -20,6 +21,7 @@ def masked_accuracy(preds, labels, mask):
     return tf.reduce_mean(accuracy_all)
 
 
+# guanja
 def masked_recall(preds, labels, mask):
     """Recall with masking.
 
@@ -50,6 +52,7 @@ def masked_recall(preds, labels, mask):
     return recall(labels, predictions)
 
 
+# guanja
 def masked_precision(preds, labels, mask):
     """Precision with masking.
 
