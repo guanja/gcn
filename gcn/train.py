@@ -2,7 +2,10 @@ from __future__ import division
 from __future__ import print_function
 
 import time
+import ipdb
+
 import tensorflow as tf
+
 
 from gcn.utils import *
 from gcn.models import GCN, MLP
@@ -10,7 +13,7 @@ from gcn.models import GCN, MLP
 # Set random seed
 seed = 123
 np.random.seed(seed)
-tf.set_random_seed(seed)
+tf.compat.v1.set_random_seed(seed)
 
 # Settings
 flags = tf.app.flags
@@ -27,6 +30,8 @@ flags.DEFINE_integer('max_degree', 3, 'Maximum Chebyshev polynomial degree.')
 
 # Load data
 adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_data(FLAGS.dataset)
+
+ipdb.set_trace()
 
 # Some preprocessing
 features = preprocess_features(features)
@@ -47,12 +52,12 @@ else:
 
 # Define placeholders
 placeholders = {
-    'support': [tf.sparse_placeholder(tf.float32) for _ in range(num_supports)],
-    'features': tf.sparse_placeholder(tf.float32, shape=tf.constant(features[2], dtype=tf.int64)),
-    'labels': tf.placeholder(tf.float32, shape=(None, y_train.shape[1])),
-    'labels_mask': tf.placeholder(tf.int32),
-    'dropout': tf.placeholder_with_default(0., shape=()),
-    'num_features_nonzero': tf.placeholder(tf.int32)  # helper variable for sparse dropout
+    'support': [tf.compat.v1.sparse_placeholder(tf.float32) for _ in range(num_supports)],
+    'features': tf.compat.v1.sparse_placeholder(tf.float32, shape=tf.constant(features[2], dtype=tf.int64)),
+    'labels': tf.compat.v1.placeholder(tf.float32, shape=(None, y_train.shape[1])),
+    'labels_mask': tf.compat.v1.placeholder(tf.int32),
+    'dropout': tf.compat.v1.placeholder_with_default(0., shape=()),
+    'num_features_nonzero': tf.compat.v1.placeholder(tf.int32)  # helper variable for sparse dropout
 }
 
 # Create model
@@ -62,16 +67,20 @@ model = model_func(placeholders, input_dim=features[2][1], logging=True)
 sess = tf.Session()
 
 
-# Define model evaluation function
+# Define model evaluation function.
 def evaluate(features, support, labels, mask, placeholders):
     t_test = time.time()
-    feed_dict_val = construct_feed_dict(features, support, labels, mask, placeholders)
-    outs_val = sess.run([model.loss, model.accuracy], feed_dict=feed_dict_val)
-    return outs_val[0], outs_val[1], (time.time() - t_test)
+    feed_dict_val = construct_feed_dict(features, support, labels, mask, 
+                                        placeholders)
+    scores = sess.run([model.loss, model.accuracy, model.recall, 
+                         model.precision], feed_dict=feed_dict_val)
+    time_elapsed = time.time() - t_test
+    return scores[0], scores[1], scores[2], scores[3], time_elapsed
 
 
 # Init variables
-sess.run(tf.global_variables_initializer())
+sess.run(tf.compat.v1.global_variables_initializer())
+sess.run(tf.compat.v1.local_variables_initializer())
 
 cost_val = []
 
@@ -80,28 +89,40 @@ for epoch in range(FLAGS.epochs):
 
     t = time.time()
     # Construct feed dictionary
-    feed_dict = construct_feed_dict(features, support, y_train, train_mask, placeholders)
+    feed_dict = construct_feed_dict(features, support, y_train, train_mask, 
+                                    placeholders)
     feed_dict.update({placeholders['dropout']: FLAGS.dropout})
 
     # Training step
-    outs = sess.run([model.opt_op, model.loss, model.accuracy], feed_dict=feed_dict)
+    outs = sess.run([model.opt_op, model.loss, model.accuracy, 
+                     model.recall, model.precision], feed_dict=feed_dict)
 
     # Validation
-    cost, acc, duration = evaluate(features, support, y_val, val_mask, placeholders)
+    cost, acc, rec, prec, duration = evaluate(features, support, y_val, 
+                                              val_mask, placeholders)
     cost_val.append(cost)
 
-    # Print results
-    print("Epoch:", '%04d' % (epoch + 1), "train_loss=", "{:.5f}".format(outs[1]),
-          "train_acc=", "{:.5f}".format(outs[2]), "val_loss=", "{:.5f}".format(cost),
-          "val_acc=", "{:.5f}".format(acc), "time=", "{:.5f}".format(time.time() - t))
+    # Print results.
+    print(f'Epoch: {epoch+1} (time={time.time() - t})\n',
+          f'Training: ',
+          f'loss={outs[1]:.5f}, acc={outs[2]:.3f}, rec={outs[3][0]:.3f}, ',
+          f'prec={outs[4][0]:.3f}\n',
+          f'Validation: ',
+          f'loss={cost:.5f}, acc={acc:.3f}, rec={rec[0]:.3f}, ',
+          f'prec={prec[0]:.3f}.')
 
-    if epoch > FLAGS.early_stopping and cost_val[-1] > np.mean(cost_val[-(FLAGS.early_stopping+1):-1]):
+    if epoch > FLAGS.early_stopping and \
+        cost_val[-1] > np.mean(cost_val[-(FLAGS.early_stopping+1):-1]):
         print("Early stopping...")
         break
 
 print("Optimization Finished!")
 
 # Testing
-test_cost, test_acc, test_duration = evaluate(features, support, y_test, test_mask, placeholders)
-print("Test set results:", "cost=", "{:.5f}".format(test_cost),
-      "accuracy=", "{:.5f}".format(test_acc), "time=", "{:.5f}".format(test_duration))
+test_cost, test_acc, test_rec, test_prec, test_duration = \
+    evaluate(features, support, y_test, test_mask, placeholders)
+
+print(f'Test: ({test_duration})\n',
+      f'loss={test_cost:.5f}, acc={test_acc:.3f}, rec={test_rec[0]:.3f}, '\
+      f'prec={test_prec[0]:.3f}\n')
+
