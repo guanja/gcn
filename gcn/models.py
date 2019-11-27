@@ -6,6 +6,7 @@ FLAGS = flags.FLAGS
 
 
 class Model(object):
+
     def __init__(self, **kwargs):
         allowed_kwargs = {'name', 'logging'}
         for kwarg in kwargs.keys():
@@ -36,24 +37,28 @@ class Model(object):
         raise NotImplementedError
 
     def build(self):
-        """ Wrapper for _build() """
+        """ Wrapper for _build(). """
+
         with tf.variable_scope(self.name):
             self._build()
 
-        # Build sequential layer model
+        # Build sequential layer model.
         self.activations.append(self.inputs)
         for layer in self.layers:
             hidden = layer(self.activations[-1])
             self.activations.append(hidden)
         self.outputs = self.activations[-1]
 
-        # Store model variables for easy access
-        variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.name)
+        # Store model variables for easy access.
+        variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, 
+                                      scope=self.name)
         self.vars = {var.name: var for var in variables}
 
-        # Build metrics
+        # Build metrics.
         self._loss()
         self._accuracy()
+        self._recall()
+        self._precision()
 
         self.opt_op = self.optimizer.minimize(self.loss)
 
@@ -64,6 +69,12 @@ class Model(object):
         raise NotImplementedError
 
     def _accuracy(self):
+        raise NotImplementedError
+
+    def _precision(self):
+        raise NotImplementedError
+
+    def _recall(self):
         raise NotImplementedError
 
     def save(self, sess=None):
@@ -102,14 +113,19 @@ class MLP(Model):
             self.loss += FLAGS.weight_decay * tf.nn.l2_loss(var)
 
         # Cross entropy error
-        self.loss += masked_softmax_cross_entropy(self.outputs, self.placeholders['labels'],
-                                                  self.placeholders['labels_mask'])
+        self.loss += \
+            masked_softmax_cross_entropy(self.outputs, 
+                                         self.placeholders['labels'],
+                                         self.placeholders['labels_mask'])
 
     def _accuracy(self):
-        self.accuracy = masked_accuracy(self.outputs, self.placeholders['labels'],
+        self.accuracy = masked_accuracy(self.outputs, 
+                                        self.placeholders['labels'],
                                         self.placeholders['labels_mask'])
 
     def _build(self):
+        """Build the model. """
+
         self.layers.append(Dense(input_dim=self.input_dim,
                                  output_dim=FLAGS.hidden1,
                                  placeholders=self.placeholders,
@@ -130,7 +146,9 @@ class MLP(Model):
 
 
 class GCN(Model):
+
     def __init__(self, placeholders, input_dim, **kwargs):
+
         super(GCN, self).__init__(**kwargs)
 
         self.inputs = placeholders['features']
@@ -139,7 +157,8 @@ class GCN(Model):
         self.output_dim = placeholders['labels'].get_shape().as_list()[1]
         self.placeholders = placeholders
 
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
+        self.optimizer = \
+            tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
 
         self.build()
 
@@ -149,12 +168,24 @@ class GCN(Model):
             self.loss += FLAGS.weight_decay * tf.nn.l2_loss(var)
 
         # Cross entropy error
-        self.loss += masked_softmax_cross_entropy(self.outputs, self.placeholders['labels'],
-                                                  self.placeholders['labels_mask'])
+        self.loss += \
+            masked_softmax_cross_entropy(self.outputs, 
+                                         self.placeholders['labels'],
+                                         self.placeholders['labels_mask'])
 
     def _accuracy(self):
-        self.accuracy = masked_accuracy(self.outputs, self.placeholders['labels'],
+        self.accuracy = masked_accuracy(self.outputs, 
+                                        self.placeholders['labels'],
                                         self.placeholders['labels_mask'])
+
+    def _recall(self):
+        self.recall = masked_recall(self.outputs, self.placeholders['labels'],
+                                    self.placeholders['labels_mask'])
+
+    def _precision(self):
+        self.precision = masked_precision(self.outputs, 
+                                          self.placeholders['labels'],
+                                          self.placeholders['labels_mask'])
 
     def _build(self):
 
